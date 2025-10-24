@@ -244,18 +244,18 @@ go func() {
 }()
 
 // Option 2: Use a handler function
-client.Bind("user.created").To(func(msg *conduit.Message) {
+binding := client.Bind("user.created").To(func(msg *conduit.Message) {
     var event UserCreatedEvent
     msg.Into(&event)
     updateCache(event)
 })
 ```
 
-Close bindings when done:
+Unbind when done:
 
 ```go
 binding := client.Bind("user.created")
-defer binding.Close()
+defer binding.Unbind()
 ```
 
 ### Queue Binding

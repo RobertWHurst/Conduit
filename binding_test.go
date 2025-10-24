@@ -136,22 +136,22 @@ func TestBindingToMultipleMessages(t *testing.T) {
 	}
 }
 
-func TestBindingClose(t *testing.T) {
+func TestBindingUnbind(t *testing.T) {
 	client := NewClient("test-service", &mockTransport{}, &mockEncoder{})
 	binding := client.Bind("test.event")
 
 	if _, ok := client.handlerChans["test.event"][binding]; !ok {
-		t.Error("Binding not registered before close")
+		t.Error("Binding not registered before unbind")
 	}
 
-	binding.Close()
+	binding.Unbind()
 
 	if _, ok := client.handlerChans["test.event"][binding]; ok {
-		t.Error("Binding still registered after close")
+		t.Error("Binding still registered after unbind")
 	}
 }
 
-func TestBindingCloseStopsTo(t *testing.T) {
+func TestBindingUnbindStopsTo(t *testing.T) {
 	var handler func(subject, sourceServiceName, replySubject string, reader io.Reader)
 	transport := &mockTransport{
 		handleFunc: func(serviceName string, h func(sourceServiceName, subject, replySubject string, reader io.Reader)) {
@@ -174,12 +174,12 @@ func TestBindingCloseStopsTo(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	_ = handler
-	binding.Close()
+	binding.Unbind()
 
 	select {
 	case <-exited:
 	case <-time.After(time.Second):
-		t.Fatal("To() goroutine did not exit after Close()")
+		t.Fatal("To() goroutine did not exit after Unbind()")
 	}
 }
 

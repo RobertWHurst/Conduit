@@ -56,7 +56,7 @@ func (b *Binding) Next() *Message {
 
 // To spawns a goroutine that calls the handler for each message.
 // The handler runs asynchronously and continues until the binding is closed.
-func (b *Binding) To(handler func(msg *Message)) {
+func (b *Binding) To(handler func(msg *Message)) *Binding {
 	go func() {
 		for {
 			msg, ok := <-b.handlerChan
@@ -66,11 +66,12 @@ func (b *Binding) To(handler func(msg *Message)) {
 			handler(msg)
 		}
 	}()
+	return b
 }
 
-// Close unsubscribes from messages and frees resources.
+// Unbind unsubscribes from messages and frees resources.
 // Any goroutines spawned by To() will exit after Close is called.
-func (b *Binding) Close() {
+func (b *Binding) Unbind() {
 	if b.bindType == BindTypeQueue {
 		b.client.queueHandlerChansMu.Lock()
 		defer b.client.queueHandlerChansMu.Unlock()

@@ -202,7 +202,7 @@ func TestClientConcurrency(t *testing.T) {
 			if msg == nil {
 				t.Error("Received nil message")
 			}
-			binding.Close()
+			binding.Unbind()
 		}(i)
 	}
 
@@ -246,7 +246,7 @@ func BenchmarkClientBind(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		binding := client.Bind("test.event")
-		binding.Close()
+		binding.Unbind()
 	}
 }
 

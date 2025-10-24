@@ -57,7 +57,7 @@ func (s *ServiceClient) RequestWithCtx(ctx context.Context, subject string, v an
 	}
 
 	binding := s.client.Bind(replySubject)
-	defer binding.Close()
+	defer binding.Unbind()
 
 	select {
 	case <-ctx.Done():
