@@ -275,3 +275,25 @@ func BenchmarkClientHandleMessage(b *testing.B) {
 		handler("test.event", "source", "reply", strings.NewReader("data"))
 	}
 }
+
+func TestClientQueueBind(t *testing.T) {
+	client := NewClient("test-service", &mockTransport{}, &mockEncoder{})
+
+	binding := client.QueueBind("test.queue")
+
+	if binding.client != client {
+		t.Error("Binding not linked to client correctly")
+	}
+
+	if binding.eventName != "test.queue" {
+		t.Errorf("Expected event name 'test.queue', got '%s'", binding.eventName)
+	}
+
+	if binding.bindType != BindTypeQueue {
+		t.Errorf("Expected bind type Queue, got %v", binding.bindType)
+	}
+
+	if _, ok := client.queueHandlerChans["test.queue"][binding]; !ok {
+		t.Error("Binding not registered in queue handler map")
+	}
+}

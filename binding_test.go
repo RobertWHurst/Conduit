@@ -11,7 +11,7 @@ import (
 func TestNewBinding(t *testing.T) {
 	client := NewClient("test-service", &mockTransport{}, &mockEncoder{})
 
-	binding := newBinding(client, "test.event")
+	binding := newBinding(client, BindTypeNormal, "test.event")
 
 	if binding.client != client {
 		t.Error("Binding client not set correctly")

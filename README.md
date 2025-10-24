@@ -21,7 +21,7 @@ A lightweight, transport-agnostic messaging framework for Go. Build distributed 
   - [Send (Fire and Forget)](#send-fire-and-forget)
   - [Request/Reply](#requestreply)
   - [Event Binding](#event-binding)
-
+  - [Queue Binding](#queue-binding)
 - [Message Handling](#message-handling)
   - [Decoding Messages](#decoding-messages)
   - [Reading Raw Data](#reading-raw-data)
@@ -296,6 +296,28 @@ Close bindings when you're done to free resources:
 binding := client.Bind("user.created")
 defer binding.Close()
 ```
+
+### Queue Binding
+
+Queue binding distributes messages across multiple service instances, ensuring each message is processed by only one instance. This is useful for load balancing work across multiple instances.
+
+The API is identical to regular bindings, but uses `QueueBind()` instead of `Bind()`. The transport ensures only one instance receives each message through queue group semantics.
+
+```go
+// Multiple instances of the service can bind to the same queue
+client.QueueBind("work.process").To(func(msg *conduit.Message) {
+    var work WorkItem
+    msg.Into(&work)
+    processWork(work)
+})
+```
+
+**When to use each:**
+
+- **Bind()** - Use for events that all instances should process (e.g., cache invalidation, configuration updates)
+- **QueueBind()** - Use for work that should be distributed (e.g., job processing, request handling)
+
+**Note:** Both `Bind()` and `QueueBind()` can be used on the same subject simultaneously. Bind() subscribers all receive every message, while QueueBind() subscribers share messages (only one receives each).
 
 ## Message Handling
 

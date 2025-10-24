@@ -28,9 +28,10 @@ func (m *mockEncoder) Decode(data []byte, v any) error {
 }
 
 type mockTransport struct {
-	sendFunc   func(serviceName, subject, sourceServiceName, replySubject string, reader io.Reader) error
-	handleFunc func(serviceName string, handler func(sourceServiceName, subject, replySubject string, reader io.Reader))
-	closeFunc  func() error
+	sendFunc        func(serviceName, subject, sourceServiceName, replySubject string, reader io.Reader) error
+	handleFunc      func(serviceName string, handler func(sourceServiceName, subject, replySubject string, reader io.Reader))
+	handleQueueFunc func(serviceName string, handler func(sourceServiceName, subject, replySubject string, reader io.Reader))
+	closeFunc       func() error
 }
 
 func (m *mockTransport) Send(serviceName, subject, sourceServiceName, replySubject string, reader io.Reader) error {
@@ -43,6 +44,12 @@ func (m *mockTransport) Send(serviceName, subject, sourceServiceName, replySubje
 func (m *mockTransport) Handle(serviceName string, handler func(sourceServiceName, subject, replySubject string, reader io.Reader)) {
 	if m.handleFunc != nil {
 		m.handleFunc(serviceName, handler)
+	}
+}
+
+func (m *mockTransport) HandleQueue(serviceName string, handler func(sourceServiceName, subject, replySubject string, reader io.Reader)) {
+	if m.handleQueueFunc != nil {
+		m.handleQueueFunc(serviceName, handler)
 	}
 }
 

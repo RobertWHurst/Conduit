@@ -6,6 +6,9 @@ import (
 	"strings"
 )
 
+// Message represents an incoming message from another service.
+// It provides methods to decode the message data, read it as a stream,
+// or reply to the sender.
 type Message struct {
 	sourceServiceName string
 	replySubject      string
@@ -14,6 +17,9 @@ type Message struct {
 	err               error
 }
 
+// Into decodes the message data into v using the configured encoder.
+// The message data is limited by MaxDecodeSize to prevent memory exhaustion.
+// Returns any error that occurred during transport, reading, or decoding.
 func (m *Message) Into(v any) error {
 	if m.err != nil {
 		return m.err
@@ -25,6 +31,8 @@ func (m *Message) Into(v any) error {
 	return m.client.encoder.Decode(data, v)
 }
 
+// Read implements io.Reader, allowing the message to be read as a stream.
+// This is useful for large messages that should not be loaded entirely into memory.
 func (m *Message) Read(p []byte) (n int, err error) {
 	if m.err != nil {
 		return 0, m.err
@@ -32,6 +40,9 @@ func (m *Message) Read(p []byte) (n int, err error) {
 	return m.data.Read(p)
 }
 
+// Reply sends a response back to the original sender.
+// Only messages received via Request have a reply subject.
+// The value v can be a struct (encoded), string, []byte, or io.Reader.
 func (m *Message) Reply(v any) error {
 	if m.err != nil {
 		return m.err
