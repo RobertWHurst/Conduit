@@ -70,13 +70,13 @@ func TestMessageInto(t *testing.T) {
 		},
 	}
 
-	client := NewClient("test-service", &mockTransport{}, encoder)
+	client := New("test-service", &mockTransport{}, encoder)
 
 	msg := &Message{
 		sourceServiceName: "source",
 		replySubject:      "reply",
 		data:              strings.NewReader("test data"),
-		client:            client,
+		conduit:           client,
 	}
 
 	var result string
@@ -98,11 +98,11 @@ func TestMessageIntoWithError(t *testing.T) {
 		},
 	}
 
-	client := NewClient("test-service", &mockTransport{}, encoder)
+	client := New("test-service", &mockTransport{}, encoder)
 
 	msg := &Message{
-		data:   strings.NewReader("test data"),
-		client: client,
+		data:    strings.NewReader("test data"),
+		conduit: client,
 	}
 
 	var result string
@@ -114,12 +114,12 @@ func TestMessageIntoWithError(t *testing.T) {
 
 func TestMessageIntoWithPriorError(t *testing.T) {
 	expectedErr := errors.New("prior error")
-	client := NewClient("test-service", &mockTransport{}, &mockEncoder{})
+	client := New("test-service", &mockTransport{}, &mockEncoder{})
 
 	msg := &Message{
-		data:   strings.NewReader("test data"),
-		client: client,
-		err:    expectedErr,
+		data:    strings.NewReader("test data"),
+		conduit: client,
+		err:     expectedErr,
 	}
 
 	var result string
@@ -130,12 +130,12 @@ func TestMessageIntoWithPriorError(t *testing.T) {
 }
 
 func TestMessageRead(t *testing.T) {
-	client := NewClient("test-service", &mockTransport{}, &mockEncoder{})
+	client := New("test-service", &mockTransport{}, &mockEncoder{})
 
 	testData := "test data"
 	msg := &Message{
-		data:   strings.NewReader(testData),
-		client: client,
+		data:    strings.NewReader(testData),
+		conduit: client,
 	}
 
 	buf := make([]byte, len(testData))
@@ -155,12 +155,12 @@ func TestMessageRead(t *testing.T) {
 
 func TestMessageReadWithError(t *testing.T) {
 	expectedErr := errors.New("prior error")
-	client := NewClient("test-service", &mockTransport{}, &mockEncoder{})
+	client := New("test-service", &mockTransport{}, &mockEncoder{})
 
 	msg := &Message{
-		data:   strings.NewReader("test"),
-		client: client,
-		err:    expectedErr,
+		data:    strings.NewReader("test"),
+		conduit: client,
+		err:     expectedErr,
 	}
 
 	buf := make([]byte, 10)
@@ -192,13 +192,13 @@ func TestMessageReply(t *testing.T) {
 		},
 	}
 
-	client := NewClient("my-service", transport, encoder)
+	client := New("my-service", transport, encoder)
 
 	msg := &Message{
 		sourceServiceName: "remote-service",
 		replySubject:      "reply-subject",
 		data:              strings.NewReader(""),
-		client:            client,
+		conduit:           client,
 	}
 
 	err := msg.Reply("response")
@@ -225,11 +225,11 @@ func TestMessageReply(t *testing.T) {
 
 func TestMessageReplyWithError(t *testing.T) {
 	expectedErr := errors.New("prior error")
-	client := NewClient("test-service", &mockTransport{}, &mockEncoder{})
+	client := New("test-service", &mockTransport{}, &mockEncoder{})
 
 	msg := &Message{
-		client: client,
-		err:    expectedErr,
+		conduit: client,
+		err:     expectedErr,
 	}
 
 	err := msg.Reply("response")
@@ -320,12 +320,12 @@ func TestMaxDecodeSize(t *testing.T) {
 		},
 	}
 
-	client := NewClient("test-service", &mockTransport{}, encoder)
+	client := New("test-service", &mockTransport{}, encoder)
 
 	largeData := strings.Repeat("a", 20)
 	msg := &Message{
-		data:   strings.NewReader(largeData),
-		client: client,
+		data:    strings.NewReader(largeData),
+		conduit: client,
 	}
 
 	var result string
@@ -346,15 +346,15 @@ func BenchmarkMessageInto(b *testing.B) {
 		},
 	}
 
-	client := NewClient("test-service", &mockTransport{}, encoder)
+	client := New("test-service", &mockTransport{}, encoder)
 
 	data := bytes.Repeat([]byte("a"), 1024)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		msg := &Message{
-			data:   bytes.NewReader(data),
-			client: client,
+			data:    bytes.NewReader(data),
+			conduit: client,
 		}
 		var result string
 		msg.Into(&result)
@@ -362,15 +362,15 @@ func BenchmarkMessageInto(b *testing.B) {
 }
 
 func BenchmarkMessageRead(b *testing.B) {
-	client := NewClient("test-service", &mockTransport{}, &mockEncoder{})
+	client := New("test-service", &mockTransport{}, &mockEncoder{})
 
 	data := bytes.Repeat([]byte("a"), 1024)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		msg := &Message{
-			data:   bytes.NewReader(data),
-			client: client,
+			data:    bytes.NewReader(data),
+			conduit: client,
 		}
 		buf := make([]byte, 1024)
 		msg.Read(buf)

@@ -13,7 +13,7 @@ A lightweight, transport-agnostic messaging framework for Go. Build distributed 
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Core Concepts](#core-concepts)
-  - [Client](#client)
+  - [Conduit](#conduit)
   - [Service Communication](#service-communication)
   - [Message Encoding](#message-encoding)
   - [Transports](#transports)
@@ -56,6 +56,7 @@ go get github.com/RobertWHurst/conduit
 ```
 
 For NATS transport:
+
 ```bash
 go get github.com/nats-io/nats.go
 ```
@@ -70,11 +71,11 @@ Here's a simple example showing event-driven communication between services over
 // Connect to NATS
 nc, _ := natsgo.Connect("nats://localhost:4222")
 
-// Create client
-client := conduit.NewClient("user-service", nats.NewNatsTransport(nc), json.New())
+// Create conduit
+conduit := conduit.New("user-service", natstransport.New(nc), jsonencoder.New())
 
 // Broadcast user.created event when a user signs up
-client.Service("notification-service").Send("user.created", UserCreatedEvent{
+conduit.Service("notification-service").Send("user.created", UserCreatedEvent{
     UserID: 123,
     Email:  "alice@example.com",
     Name:   "Alice",
@@ -87,11 +88,11 @@ client.Service("notification-service").Send("user.created", UserCreatedEvent{
 // Connect to NATS
 nc, _ := natsgo.Connect("nats://localhost:4222")
 
-// Create client
-client := conduit.NewClient("notification-service", nats.NewNatsTransport(nc), json.New())
+// Create conduit
+conduit := conduit.New("notification-service", natstransport.New(nc), jsonencoder.New())
 
 // Listen for user.created events
-client.Bind("user.created").To(func(msg *conduit.Message) {
+conduit.Bind("user.created").To(func(msg *conduit.Message) {
     var event UserCreatedEvent
     msg.Into(&event)
     
@@ -102,28 +103,28 @@ client.Bind("user.created").To(func(msg *conduit.Message) {
 
 ## Core Concepts
 
-### Client
+### Conduit
 
-The client allows sending and receiving data from different services. A client takes the name of the service it represents, a transport for facilitating communication, and an encoder for encoding and decoding structs.
+A conduit allows sending and receiving data from different services. Each conduit takes the name of the service it represents, a transport for facilitating communication, and an encoder for encoding and decoding structs.
 
-Each service should have one client instance. The service name identifies your service to others in the distributed system. The transport handles the underlying message delivery (like NATS). The encoder serializes and deserializes your data structures.
+Each service should have one conduit instance. The service name identifies your service to others in the distributed system. The transport handles the underlying message delivery (like NATS). The encoder serializes and deserializes your data structures.
 
 ```go
-client := conduit.NewClient(
+conduit := conduit.New(
     "my-service",
-    nats.NewNatsTransport(natsConn),
-    json.New(),
+    natstransport.New(natsConn),
+    jsonencoder.New(),
 )
-defer client.Close()
+defer conduit.Close()
 ```
 
 ### Service Communication
 
-To send messages to another service, create a service client using `client.Service()` with the target service name. This returns a `ServiceClient` that provides methods for sending one-way messages or making request/reply calls.
+To send messages to another service, create a service client using `conduit.Service()` with the target service name. This returns a `ServiceClient` that provides methods for sending one-way messages or making request/reply calls.
 
 ```go
 // Create a service client for "notification-service"
-notificationService := client.Service("notification-service")
+notificationService := conduit.Service("notification-service")
 
 // Send one-way message
 notificationService.Send("email.send", EmailRequest{
@@ -158,20 +159,20 @@ Encoders handle five types of values:
 
 ```go
 // Send a struct
-client.Service("notification-service").Send("user.created", User{ID: 123, Name: "Alice"})
+conduit.Service("notification-service").Send("user.created", User{ID: 123, Name: "Alice"})
 
 // Send a string
-client.Service("log-service").Send("log.info", "User logged in")
+conduit.Service("log-service").Send("log.info", "User logged in")
 
 // Send bytes
-client.Service("analytics-service").Send("event.track", []byte{0x01, 0x02, 0x03})
+conduit.Service("analytics-service").Send("event.track", []byte{0x01, 0x02, 0x03})
 
 // Stream a file
 file, _ := os.Open("report.pdf")
-client.Service("storage-service").Send("file.upload", file)
+conduit.Service("storage-service").Send("file.upload", file)
 
 // Send event without payload
-client.Service("cache-service").Send("cache.invalidate", nil)
+conduit.Service("cache-service").Send("cache.invalidate", nil)
 ```
 
 ### Transports
@@ -184,7 +185,7 @@ The NATS transport uses a chunked streaming protocol to send messages of any siz
 
 ```go
 nc, _ := natsgo.Connect("nats://localhost:4222")
-client := conduit.NewClient("my-service", nats.NewNatsTransport(nc), json.New())
+conduit := conduit.New("my-service", natstransport.New(nc), jsonencoder.New())
 ```
 
 ## Messaging Patterns
@@ -195,14 +196,14 @@ Send delivers one-way messages without waiting for a reply. This is ideal for br
 
 ```go
 // Broadcast login event
-client.Service("analytics-service").Send("user.login", LoginEvent{
+conduit.Service("analytics-service").Send("user.login", LoginEvent{
     UserID:    123,
     Timestamp: time.Now(),
     IPAddress: "192.168.1.1",
 })
 
 // Send log message
-client.Service("log-service").Send("log.info", "User 123 logged in")
+conduit.Service("log-service").Send("log.info", "User 123 logged in")
 ```
 
 ### Request/Reply
@@ -212,17 +213,17 @@ Request/Reply is a synchronous pattern where the sender waits for a response. Us
 ```go
 // Make request and wait for reply (30 second default timeout)
 var result ProcessResult
-if err := client.Service("worker-service").Request("job.process", job).Into(&result); err != nil {
+if err := conduit.Service("worker-service").Request("job.process", job).Into(&result); err != nil {
     log.Fatal(err)
 }
 
 // Custom timeout
-client.Service("worker-service").RequestWithTimeout("job.process", job, 5*time.Second).Into(&result)
+conduit.Service("worker-service").RequestWithTimeout("job.process", job, 5*time.Second).Into(&result)
 
 // Context-based cancellation
 ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 defer cancel()
-client.Service("worker-service").RequestWithCtx(ctx, "job.process", job).Into(&result)
+conduit.Service("worker-service").RequestWithCtx(ctx, "job.process", job).Into(&result)
 ```
 
 ### Event Binding
@@ -233,28 +234,33 @@ Use `Next()` to process messages in a loop, or `To()` to handle messages with a 
 
 ```go
 // Option 1: Process messages in a loop
-binding := client.Bind("user.created")
+binding := conduit.Bind("user.created")
 go func() {
     for {
-        msg := binding.Next()
         var event UserCreatedEvent
-        msg.Into(&event)
+        if err := binding.Next().Into(&event); err != nil {
+            if err == conduit.ErrBindingClosed {
+                break
+            }
+            log.Printf("Failed to decode: %v", err)
+            continue
+        }
         updateCache(event)
     }
 }()
 
 // Option 2: Use a handler function
-binding := client.Bind("user.created").To(func(msg *conduit.Message) {
+binding := conduit.Bind("user.created").To(func(msg *conduit.Message) {
     var event UserCreatedEvent
     msg.Into(&event)
     updateCache(event)
 })
 ```
 
-Unbind when done:
+Unbind when done (safe to call multiple times):
 
 ```go
-binding := client.Bind("user.created")
+binding := conduit.Bind("user.created")
 defer binding.Unbind()
 ```
 
@@ -264,7 +270,7 @@ Queue bindings distribute messages across service instances - only one instance 
 
 ```go
 // Each message goes to only one instance
-client.QueueBind("job.process").To(func(msg *conduit.Message) {
+conduit.QueueBind("job.process").To(func(msg *conduit.Message) {
     var job Job
     msg.Into(&job)
     processJob(job)
@@ -285,7 +291,7 @@ Both can be used on the same subject simultaneously.
 Use `Into()` to decode messages into Go structs. The decoder respects `MaxDecodeSize` (default 5MB) to prevent memory exhaustion.
 
 ```go
-client.Bind("order.created").To(func(msg *conduit.Message) {
+conduit.Bind("order.created").To(func(msg *conduit.Message) {
     var event OrderCreatedEvent
     if err := msg.Into(&event); err != nil {
         log.Printf("Failed to decode: %v", err)
@@ -307,7 +313,7 @@ conduit.MaxDecodeSize = 10 * 1024 * 1024 // 10MB
 Messages implement `io.Reader` for streaming large data without loading it into memory.
 
 ```go
-client.Bind("file.upload").To(func(msg *conduit.Message) {
+conduit.Bind("file.upload").To(func(msg *conduit.Message) {
     file, _ := os.Create("/tmp/upload")
     defer file.Close()
     
@@ -321,7 +327,7 @@ client.Bind("file.upload").To(func(msg *conduit.Message) {
 Use `Reply()` to respond to requests. Only messages sent via `Request()` have reply subjects - messages from `Send()` cannot be replied to.
 
 ```go
-client.Bind("job.process").To(func(msg *conduit.Message) {
+conduit.Bind("job.process").To(func(msg *conduit.Message) {
     var job Job
     msg.Into(&job)
     
@@ -342,12 +348,13 @@ client.Bind("job.process").To(func(msg *conduit.Message) {
 JSON encoding is human-readable and widely supported. Good for development and debugging.
 
 ```go
-import "github.com/RobertWHurst/conduit/encoders/json"
+import "github.com/RobertWHurst/conduit/encoders/jsonencoder"
 
-client := conduit.NewClient("my-service", transport, json.New())
+conduit := conduit.New("my-service", transport, jsonencoder.New())
 ```
 
 Use JSON when:
+
 - Human-readable messages are important
 - Broad compatibility is needed
 - Performance is not critical
@@ -357,12 +364,13 @@ Use JSON when:
 MessagePack is a fast, compact binary format - approximately 5x faster than JSON with smaller message sizes.
 
 ```go
-import "github.com/RobertWHurst/conduit/encoders/msgpack"
+import "github.com/RobertWHurst/conduit/encoders/msgpackencoder"
 
-client := conduit.NewClient("my-service", transport, msgpack.New())
+conduit := conduit.New("my-service", transport, msgpackencoder.New())
 ```
 
 Use MessagePack when:
+
 - High throughput is needed
 - Bandwidth or memory is constrained
 - All services are under your control
@@ -393,14 +401,14 @@ protoc --go_out=. --go_opt=paths=source_relative events.proto
 
 ```go
 import (
-    "github.com/RobertWHurst/conduit/encoders/protobuf"
+    "github.com/RobertWHurst/conduit/encoders/protobufencoder"
     pb "github.com/myuser/myapp/proto"
 )
 
-client := conduit.NewClient("my-service", transport, protobuf.New())
+conduit := conduit.New("my-service", transport, protobufencoder.New())
 
 // Send protobuf message
-client.Service("notification-service").Send("user.created", &pb.UserCreatedEvent{
+conduit.Service("notification-service").Send("user.created", &pb.UserCreatedEvent{
     UserId: 123,
     Email:  "alice@example.com",
     Name:   "Alice",
@@ -408,6 +416,7 @@ client.Service("notification-service").Send("user.created", &pb.UserCreatedEvent
 ```
 
 Use Protocol Buffers when:
+
 - Type-safe schemas are needed
 - Supporting multiple languages
 - Backward/forward compatibility is important
@@ -420,16 +429,17 @@ The NATS transport provides reliable, high-performance messaging with support fo
 
 ```go
 import (
-    "github.com/RobertWHurst/conduit/transports/nats"
+    "github.com/RobertWHurst/conduit/transports/natstransport"
     natsgo "github.com/nats-io/nats.go"
 )
 
 nc, _ := natsgo.Connect("nats://localhost:4222")
-transport := nats.NewNatsTransport(nc)
-client := conduit.NewClient("my-service", transport, json.New())
+transport := natstransport.New(nc)
+conduit := conduit.New("my-service", transport, jsonencoder.New())
 ```
 
 Features:
+
 - At-most-once delivery
 - Subject-based routing
 - Clustering for high availability
@@ -442,13 +452,13 @@ The NATS transport streams messages of any size without loading them into memory
 ```go
 // Stream large file
 file, _ := os.Open("large-file.dat")
-client.Service("storage-service").Send("file.store", file)
+conduit.Service("storage-service").Send("file.store", file)
 ```
 
 Receiver streams directly to disk:
 
 ```go
-client.Bind("file.store").To(func(msg *conduit.Message) {
+conduit.Bind("file.store").To(func(msg *conduit.Message) {
     outFile, _ := os.Create("uploaded-file.dat")
     defer outFile.Close()
     io.Copy(outFile, msg)
@@ -456,6 +466,7 @@ client.Bind("file.store").To(func(msg *conduit.Message) {
 ```
 
 Protocol details:
+
 - Chunk size: 16KB (configurable via `nats.ChunkSize`)
 - Send timeout: 5 seconds (configurable via `nats.SendTimeout`)
 - Subject format: `conduit.<service-name>`
@@ -484,7 +495,7 @@ func (e *MyEncoder) Decode(data []byte, v any) error {
     return nil
 }
 
-client := conduit.NewClient("my-service", transport, &MyEncoder{})
+conduit := conduit.New("my-service", transport, &MyEncoder{})
 ```
 
 ### Custom Transports

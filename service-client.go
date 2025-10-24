@@ -7,9 +7,9 @@ import (
 )
 
 // ServiceClient provides methods for communicating with a specific remote service.
-// It is created by calling Client.Service() with the target service name.
+// It is created by calling Conduit.Service() with the target service name.
 type ServiceClient struct {
-	client            *Client
+	conduit           *Conduit
 	remoteServiceName string
 }
 
@@ -17,11 +17,11 @@ type ServiceClient struct {
 // The value v can be a struct (encoded), string, []byte, or io.Reader.
 // Returns an error if encoding or sending fails.
 func (s *ServiceClient) Send(subject string, v any) error {
-	data, err := intoDataReader(s.client.encoder, v)
+	data, err := intoDataReader(s.conduit.encoder, v)
 	if err != nil {
 		return err
 	}
-	return s.client.transport.Send(s.remoteServiceName, subject, s.client.serviceName, "", data)
+	return s.conduit.transport.Send(s.remoteServiceName, subject, s.conduit.serviceName, "", data)
 }
 
 // Request sends a message and waits for a reply with a default 30-second timeout.
@@ -46,17 +46,17 @@ func (s *ServiceClient) RequestWithTimeout(subject string, v any, timeout time.D
 func (s *ServiceClient) RequestWithCtx(ctx context.Context, subject string, v any) *Message {
 	replySubject := generateReplySubject()
 
-	data, err := intoDataReader(s.client.encoder, v)
+	data, err := intoDataReader(s.conduit.encoder, v)
 	if err != nil {
 		return &Message{err: err}
 	}
 
-	err = s.client.transport.Send(s.remoteServiceName, subject, s.client.serviceName, replySubject, data)
+	err = s.conduit.transport.Send(s.remoteServiceName, subject, s.conduit.serviceName, replySubject, data)
 	if err != nil {
 		return &Message{err: err}
 	}
 
-	binding := s.client.Bind(replySubject)
+	binding := s.conduit.Bind(replySubject)
 	defer binding.Unbind()
 
 	select {

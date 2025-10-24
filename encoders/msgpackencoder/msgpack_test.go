@@ -1,12 +1,12 @@
-package json
+package msgpackencoder
 
 import (
 	"testing"
 )
 
 type testStruct struct {
-	Name  string `json:"name"`
-	Value int    `json:"value"`
+	Name  string `msgpack:"name"`
+	Value int    `msgpack:"value"`
 }
 
 func TestEncoderEncode(t *testing.T) {
@@ -19,19 +19,19 @@ func TestEncoderEncode(t *testing.T) {
 		t.Fatalf("Encode() failed: %v", err)
 	}
 
-	expected := `{"name":"test","value":42}`
-	if string(encoded) != expected {
-		t.Errorf("Expected %s, got %s", expected, string(encoded))
+	if len(encoded) == 0 {
+		t.Error("Expected non-empty encoded data")
 	}
 }
 
 func TestEncoderDecode(t *testing.T) {
 	encoder := New()
 
-	data := []byte(`{"name":"test","value":42}`)
+	original := testStruct{Name: "test", Value: 42}
+	encoded, _ := encoder.Encode(original)
 
 	var result testStruct
-	err := encoder.Decode(data, &result)
+	err := encoder.Decode(encoded, &result)
 	if err != nil {
 		t.Fatalf("Decode() failed: %v", err)
 	}
@@ -70,15 +70,15 @@ func TestEncoderEncodeDecodeRoundTrip(t *testing.T) {
 	}
 }
 
-func TestEncoderDecodeInvalidJSON(t *testing.T) {
+func TestEncoderDecodeInvalid(t *testing.T) {
 	encoder := New()
 
-	invalidData := []byte(`{invalid json}`)
+	invalidData := []byte{0xFF, 0xFF, 0xFF}
 
 	var result testStruct
 	err := encoder.Decode(invalidData, &result)
 	if err == nil {
-		t.Error("Expected error for invalid JSON, got nil")
+		t.Error("Expected error for invalid msgpack data, got nil")
 	}
 }
 
@@ -90,26 +90,23 @@ func TestEncoderEncodeNil(t *testing.T) {
 		t.Fatalf("Encode(nil) failed: %v", err)
 	}
 
-	if string(encoded) != "null" {
-		t.Errorf("Expected 'null', got '%s'", string(encoded))
+	if len(encoded) == 0 {
+		t.Error("Expected non-empty encoded data for nil")
 	}
 }
 
-func TestEncoderDecodeEmpty(t *testing.T) {
+func TestEncoderCompactness(t *testing.T) {
 	encoder := New()
 
-	var result testStruct
-	err := encoder.Decode([]byte("{}"), &result)
+	data := testStruct{Name: "compact", Value: 100}
+
+	encoded, err := encoder.Encode(data)
 	if err != nil {
-		t.Fatalf("Decode() failed: %v", err)
+		t.Fatalf("Encode() failed: %v", err)
 	}
 
-	if result.Name != "" {
-		t.Errorf("Expected empty name, got '%s'", result.Name)
-	}
-
-	if result.Value != 0 {
-		t.Errorf("Expected zero value, got %d", result.Value)
+	if len(encoded) > 30 {
+		t.Errorf("Expected compact encoding (<30 bytes), got %d bytes", len(encoded))
 	}
 }
 
@@ -125,11 +122,12 @@ func BenchmarkEncoderEncode(b *testing.B) {
 
 func BenchmarkEncoderDecode(b *testing.B) {
 	encoder := New()
-	data := []byte(`{"name":"benchmark","value":999}`)
+	data := testStruct{Name: "benchmark", Value: 999}
+	encoded, _ := encoder.Encode(data)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		var result testStruct
-		encoder.Decode(data, &result)
+		encoder.Decode(encoded, &result)
 	}
 }

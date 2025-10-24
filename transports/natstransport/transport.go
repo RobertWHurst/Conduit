@@ -1,7 +1,7 @@
 // Package nats provides a NATS transport implementation for Conduit.
 // It uses a chunked streaming protocol to send messages of any size over NATS
 // without loading them entirely into memory.
-package nats
+package natstransport
 
 import (
 	"errors"

@@ -9,9 +9,9 @@ import (
 // The default is 5MB. Set to -1 to disable the limit.
 var MaxDecodeSize = int64(1024 * 1024 * 5)
 
-// Client represents a service in the messaging system. Each client has a unique name
+// Conduit represents a service in the messaging system. Each instance has a unique name
 // and can send/receive messages using a configured transport and encoder.
-type Client struct {
+type Conduit struct {
 	serviceName         string
 	transport           Transport
 	encoder             Encoder
@@ -21,12 +21,12 @@ type Client struct {
 	queueHandlerChans   map[string]map[*Binding]chan *Message
 }
 
-// NewClient creates a new client with the given service name, transport, and encoder.
-// The service name identifies this client in the distributed system.
+// New creates a new Conduit instance with the given service name, transport, and encoder.
+// The service name identifies this service in the distributed system.
 // The transport handles the underlying message delivery.
 // The encoder serializes and deserializes message payloads.
-func NewClient(serviceName string, transport Transport, encoder Encoder) *Client {
-	c := &Client{
+func New(serviceName string, transport Transport, encoder Encoder) *Conduit {
+	c := &Conduit{
 		serviceName:       serviceName,
 		transport:         transport,
 		encoder:           encoder,
@@ -40,9 +40,9 @@ func NewClient(serviceName string, transport Transport, encoder Encoder) *Client
 
 // Service creates a client for communicating with a remote service.
 // The returned ServiceClient provides methods for sending messages and making requests.
-func (c *Client) Service(remoteServiceName string) *ServiceClient {
+func (c *Conduit) Service(remoteServiceName string) *ServiceClient {
 	return &ServiceClient{
-		client:            c,
+		conduit:           c,
 		remoteServiceName: remoteServiceName,
 	}
 }
@@ -51,7 +51,7 @@ func (c *Client) Service(remoteServiceName string) *ServiceClient {
 // All instances of the service receive each message (fan-out).
 // Use this for events that all instances should process.
 // The binding must be closed when no longer needed to free resources.
-func (c *Client) Bind(eventName string) *Binding {
+func (c *Conduit) Bind(eventName string) *Binding {
 	return newBinding(c, BindTypeNormal, eventName)
 }
 
@@ -60,7 +60,7 @@ func (c *Client) Bind(eventName string) *Binding {
 // The binding will automatically unbind after receiving one message.
 // Use this for events that only need to be processed once.
 // The binding must be closed when no longer needed to free resources.
-func (c *Client) BindOnce(eventName string) *Binding {
+func (c *Conduit) BindOnce(eventName string) *Binding {
 	return newBinding(c, BindTypeOnce, eventName)
 }
 
@@ -68,21 +68,21 @@ func (c *Client) BindOnce(eventName string) *Binding {
 // Only one instance of the service receives each message (round-robin).
 // Use this for work that should be distributed across instances.
 // The binding must be closed when no longer needed to free resources.
-func (c *Client) QueueBind(eventName string) *Binding {
+func (c *Conduit) QueueBind(eventName string) *Binding {
 	return newBinding(c, BindTypeQueue, eventName)
 }
 
-// Close closes the client and cleans up resources.
-func (c *Client) Close() error {
+// Close closes the conduit instance and cleans up resources.
+func (c *Conduit) Close() error {
 	return c.transport.Close()
 }
 
-func (c *Client) handleMessage(subject, sourceServiceName, replySubject string, reader io.Reader) {
+func (c *Conduit) handleMessage(subject, sourceServiceName, replySubject string, reader io.Reader) {
 	msg := &Message{
 		sourceServiceName: sourceServiceName,
 		replySubject:      replySubject,
 		data:              reader,
-		client:            c,
+		conduit:           c,
 	}
 
 	c.handlerChansMu.RLock()
@@ -95,12 +95,12 @@ func (c *Client) handleMessage(subject, sourceServiceName, replySubject string, 
 	}
 }
 
-func (c *Client) handleQueueMessage(subject, sourceServiceName, replySubject string, reader io.Reader) {
+func (c *Conduit) handleQueueMessage(subject, sourceServiceName, replySubject string, reader io.Reader) {
 	msg := &Message{
 		sourceServiceName: sourceServiceName,
 		replySubject:      replySubject,
 		data:              reader,
-		client:            c,
+		conduit:           c,
 	}
 
 	c.queueHandlerChansMu.RLock()

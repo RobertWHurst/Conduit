@@ -9,11 +9,11 @@ import (
 )
 
 func TestNewBinding(t *testing.T) {
-	client := NewClient("test-service", &mockTransport{}, &mockEncoder{})
+	client := New("test-service", &mockTransport{}, &mockEncoder{})
 
 	binding := newBinding(client, BindTypeNormal, "test.event")
 
-	if binding.client != client {
+	if binding.conduit != client {
 		t.Error("Binding client not set correctly")
 	}
 
@@ -42,7 +42,7 @@ func TestBindingNext(t *testing.T) {
 		},
 	}
 
-	client := NewClient("test-service", transport, &mockEncoder{})
+	client := New("test-service", transport, &mockEncoder{})
 	binding := client.Bind("test.event")
 
 	testData := "test message"
@@ -76,7 +76,7 @@ func TestBindingTo(t *testing.T) {
 		},
 	}
 
-	client := NewClient("test-service", transport, &mockEncoder{})
+	client := New("test-service", transport, &mockEncoder{})
 	binding := client.Bind("test.event")
 
 	received := make(chan *Message, 1)
@@ -107,7 +107,7 @@ func TestBindingToMultipleMessages(t *testing.T) {
 		},
 	}
 
-	client := NewClient("test-service", transport, &mockEncoder{})
+	client := New("test-service", transport, &mockEncoder{})
 	binding := client.Bind("test.event")
 
 	count := 0
@@ -137,7 +137,7 @@ func TestBindingToMultipleMessages(t *testing.T) {
 }
 
 func TestBindingUnbind(t *testing.T) {
-	client := NewClient("test-service", &mockTransport{}, &mockEncoder{})
+	client := New("test-service", &mockTransport{}, &mockEncoder{})
 	binding := client.Bind("test.event")
 
 	if _, ok := client.handlerChans["test.event"][binding]; !ok {
@@ -159,7 +159,7 @@ func TestBindingUnbindStopsTo(t *testing.T) {
 		},
 	}
 
-	client := NewClient("test-service", transport, &mockEncoder{})
+	client := New("test-service", transport, &mockEncoder{})
 	binding := client.Bind("test.event")
 
 	exited := make(chan bool, 1)
@@ -191,7 +191,7 @@ func TestBindingMultipleBindingsSameEvent(t *testing.T) {
 		},
 	}
 
-	client := NewClient("test-service", transport, &mockEncoder{})
+	client := New("test-service", transport, &mockEncoder{})
 
 	binding1 := client.Bind("test.event")
 	binding2 := client.Bind("test.event")
@@ -240,7 +240,7 @@ func TestBindingChannelBuffer(t *testing.T) {
 		},
 	}
 
-	client := NewClient("test-service", transport, &mockEncoder{})
+	client := New("test-service", transport, &mockEncoder{})
 	binding := client.Bind("test.event")
 
 	for i := 0; i < 100; i++ {
@@ -262,6 +262,147 @@ func TestBindingChannelBuffer(t *testing.T) {
 	}
 }
 
+func TestBindingIsBound(t *testing.T) {
+	client := New("test-service", &mockTransport{}, &mockEncoder{})
+	binding := client.Bind("test.event")
+
+	if !binding.IsBound() {
+		t.Error("Expected binding to be bound after creation")
+	}
+
+	binding.Unbind()
+
+	if binding.IsBound() {
+		t.Error("Expected binding to not be bound after unbind")
+	}
+}
+
+func TestBindingNextAfterUnbind(t *testing.T) {
+	client := New("test-service", &mockTransport{}, &mockEncoder{})
+	binding := client.Bind("test.event")
+
+	binding.Unbind()
+
+	msg := binding.Next()
+	if msg.err != ErrBindingClosed {
+		t.Errorf("Expected ErrBindingClosed, got %v", msg.err)
+	}
+}
+
+func TestBindingToAfterUnbind(t *testing.T) {
+	client := New("test-service", &mockTransport{}, &mockEncoder{})
+	binding := client.Bind("test.event")
+
+	binding.Unbind()
+
+	called := false
+	returnedBinding := binding.To(func(msg *Message) {
+		called = true
+	})
+
+	if returnedBinding != binding {
+		t.Error("Expected To() to return the same binding")
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	if called {
+		t.Error("Handler should not be called on closed binding")
+	}
+}
+
+func TestBindingUnbindIdempotent(t *testing.T) {
+	client := New("test-service", &mockTransport{}, &mockEncoder{})
+	binding := client.Bind("test.event")
+
+	// Should not panic when calling Unbind multiple times
+	binding.Unbind()
+	binding.Unbind()
+	binding.Unbind()
+
+	if binding.IsBound() {
+		t.Error("Expected binding to remain unbound")
+	}
+}
+
+func TestBindingTypeOnceWithNext(t *testing.T) {
+	var handler func(subject, sourceServiceName, replySubject string, reader io.Reader)
+	transport := &mockTransport{
+		handleFunc: func(serviceName string, h func(sourceServiceName, subject, replySubject string, reader io.Reader)) {
+			handler = h
+		},
+	}
+
+	client := New("test-service", transport, &mockEncoder{})
+	binding := newBinding(client, BindTypeOnce, "test.event")
+
+	if !binding.IsBound() {
+		t.Error("Expected binding to be bound initially")
+	}
+
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		handler("test.event", "source", "reply", strings.NewReader("test"))
+	}()
+
+	msg := binding.Next()
+
+	if msg.sourceServiceName != "source" {
+		t.Errorf("Expected source 'source', got '%s'", msg.sourceServiceName)
+	}
+
+	// Binding should auto-unbind after one message
+	time.Sleep(50 * time.Millisecond)
+	if binding.IsBound() {
+		t.Error("Expected BindTypeOnce to auto-unbind after Next()")
+	}
+}
+
+func TestBindingTypeOnceWithTo(t *testing.T) {
+	var handler func(subject, sourceServiceName, replySubject string, reader io.Reader)
+	transport := &mockTransport{
+		handleFunc: func(serviceName string, h func(sourceServiceName, subject, replySubject string, reader io.Reader)) {
+			handler = h
+		},
+	}
+
+	client := New("test-service", transport, &mockEncoder{})
+	binding := newBinding(client, BindTypeOnce, "test.event")
+
+	received := make(chan bool, 1)
+	binding.To(func(msg *Message) {
+		received <- true
+	})
+
+	time.Sleep(50 * time.Millisecond)
+
+	handler("test.event", "source", "reply", strings.NewReader("test"))
+
+	select {
+	case <-received:
+		// Good, handler was called
+	case <-time.After(time.Second):
+		t.Fatal("Handler not called within timeout")
+	}
+
+	// Wait a bit for auto-unbind to happen
+	time.Sleep(100 * time.Millisecond)
+
+	if binding.IsBound() {
+		t.Error("Expected BindTypeOnce to auto-unbind after To() handler")
+	}
+
+	// Send another message - should not be received
+	handler("test.event", "source", "reply", strings.NewReader("test2"))
+
+	select {
+	case <-received:
+		t.Error("Handler should not be called after auto-unbind")
+	case <-time.After(100 * time.Millisecond):
+		// Good, handler not called
+	}
+}
+
 func BenchmarkBindingNext(b *testing.B) {
 	var handler func(subject, sourceServiceName, replySubject string, reader io.Reader)
 	transport := &mockTransport{
@@ -270,7 +411,7 @@ func BenchmarkBindingNext(b *testing.B) {
 		},
 	}
 
-	client := NewClient("test-service", transport, &mockEncoder{})
+	client := New("test-service", transport, &mockEncoder{})
 	binding := client.Bind("test.event")
 
 	go func() {
@@ -293,7 +434,7 @@ func BenchmarkBindingTo(b *testing.B) {
 		},
 	}
 
-	client := NewClient("test-service", transport, &mockEncoder{})
+	client := New("test-service", transport, &mockEncoder{})
 	binding := client.Bind("test.event")
 
 	var wg sync.WaitGroup

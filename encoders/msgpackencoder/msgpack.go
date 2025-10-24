@@ -1,7 +1,7 @@
 // Package msgpack provides a MessagePack encoder for Conduit messages.
 // MessagePack is a binary format that is faster and more compact than JSON,
 // making it ideal for high-performance messaging systems.
-package msgpack
+package msgpackencoder
 
 import (
 	"github.com/vmihailenco/msgpack/v5"

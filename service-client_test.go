@@ -30,7 +30,7 @@ func TestServiceClientSend(t *testing.T) {
 		},
 	}
 
-	client := NewClient("my-service", transport, encoder)
+	client := New("my-service", transport, encoder)
 	serviceClient := client.Service("remote-service")
 
 	err := serviceClient.Send("test.subject", "test data")
@@ -75,7 +75,7 @@ func TestServiceClientRequest(t *testing.T) {
 		},
 	}
 
-	client := NewClient("my-service", transport, &mockEncoder{})
+	client := New("my-service", transport, &mockEncoder{})
 	serviceClient := client.Service("remote-service")
 
 	msg := serviceClient.Request("test.subject", "request data")
@@ -105,7 +105,7 @@ func TestServiceClientRequestWithTimeout(t *testing.T) {
 		},
 	}
 
-	client := NewClient("my-service", transport, &mockEncoder{})
+	client := New("my-service", transport, &mockEncoder{})
 	serviceClient := client.Service("remote-service")
 
 	msg := serviceClient.RequestWithTimeout("test.subject", "request", 100*time.Millisecond)
@@ -124,7 +124,7 @@ func TestServiceClientRequestWithCtx(t *testing.T) {
 		},
 	}
 
-	client := NewClient("my-service", transport, &mockEncoder{})
+	client := New("my-service", transport, &mockEncoder{})
 	serviceClient := client.Service("remote-service")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -146,7 +146,7 @@ func TestServiceClientRequestWithCtxCanceled(t *testing.T) {
 		},
 	}
 
-	client := NewClient("my-service", transport, &mockEncoder{})
+	client := New("my-service", transport, &mockEncoder{})
 	serviceClient := client.Service("remote-service")
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -209,7 +209,7 @@ func TestServiceClientRequestSuccessful(t *testing.T) {
 		},
 	}
 
-	client := NewClient("my-service", transport, encoder)
+	client := New("my-service", transport, encoder)
 	serviceClient := client.Service("remote-service")
 
 	msg := serviceClient.Request("test.subject", "request")
@@ -232,7 +232,7 @@ func BenchmarkServiceClientSend(b *testing.B) {
 		},
 	}
 
-	client := NewClient("my-service", transport, &mockEncoder{})
+	client := New("my-service", transport, &mockEncoder{})
 	serviceClient := client.Service("remote-service")
 
 	b.ResetTimer()
@@ -254,7 +254,7 @@ func BenchmarkServiceClientRequest(b *testing.B) {
 		},
 	}
 
-	client := NewClient("my-service", transport, &mockEncoder{})
+	client := New("my-service", transport, &mockEncoder{})
 	serviceClient := client.Service("remote-service")
 
 	b.ResetTimer()

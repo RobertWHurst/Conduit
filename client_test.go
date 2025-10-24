@@ -8,11 +8,11 @@ import (
 	"time"
 )
 
-func TestNewClient(t *testing.T) {
+func TestNew(t *testing.T) {
 	transport := &mockTransport{}
 	encoder := &mockEncoder{}
 
-	client := NewClient("test-service", transport, encoder)
+	client := New("test-service", transport, encoder)
 
 	if client.serviceName != "test-service" {
 		t.Errorf("Expected service name 'test-service', got '%s'", client.serviceName)
@@ -32,12 +32,12 @@ func TestNewClient(t *testing.T) {
 }
 
 func TestClientService(t *testing.T) {
-	client := NewClient("my-service", &mockTransport{}, &mockEncoder{})
+	conduit := New("my-service", &mockTransport{}, &mockEncoder{})
 
-	serviceClient := client.Service("remote-service")
+	serviceClient := conduit.Service("remote-service")
 
-	if serviceClient.client != client {
-		t.Error("ServiceClient not linked to client correctly")
+	if serviceClient.conduit != conduit {
+		t.Error("ServiceClient not linked to conduit correctly")
 	}
 
 	if serviceClient.remoteServiceName != "remote-service" {
@@ -46,11 +46,11 @@ func TestClientService(t *testing.T) {
 }
 
 func TestClientBind(t *testing.T) {
-	client := NewClient("test-service", &mockTransport{}, &mockEncoder{})
+	client := New("test-service", &mockTransport{}, &mockEncoder{})
 
 	binding := client.Bind("test.event")
 
-	if binding.client != client {
+	if binding.conduit != client {
 		t.Error("Binding not linked to client correctly")
 	}
 
@@ -80,7 +80,7 @@ func TestClientClose(t *testing.T) {
 		},
 	}
 
-	client := NewClient("test-service", transport, &mockEncoder{})
+	client := New("test-service", transport, &mockEncoder{})
 
 	err := client.Close()
 	if err != nil {
@@ -100,7 +100,7 @@ func TestClientHandleMessage(t *testing.T) {
 		},
 	}
 
-	client := NewClient("test-service", transport, &mockEncoder{})
+	client := New("test-service", transport, &mockEncoder{})
 
 	binding := client.Bind("test.event")
 
@@ -133,7 +133,7 @@ func TestClientHandleMessageMultipleBindings(t *testing.T) {
 		},
 	}
 
-	client := NewClient("test-service", transport, &mockEncoder{})
+	client := New("test-service", transport, &mockEncoder{})
 
 	binding1 := client.Bind("test.event")
 	binding2 := client.Bind("test.event")
@@ -175,7 +175,7 @@ func TestClientHandleMessageNoBindings(t *testing.T) {
 		},
 	}
 
-	NewClient("test-service", transport, &mockEncoder{})
+	New("test-service", transport, &mockEncoder{})
 
 	handler("nonexistent.event", "source", "reply", strings.NewReader("data"))
 }
@@ -188,7 +188,7 @@ func TestClientConcurrency(t *testing.T) {
 		},
 	}
 
-	client := NewClient("test-service", transport, &mockEncoder{})
+	client := New("test-service", transport, &mockEncoder{})
 
 	var wg sync.WaitGroup
 	bindingCount := 10
@@ -229,8 +229,8 @@ func TestClientMultipleServices(t *testing.T) {
 	transport1 := &mockTransport{}
 	transport2 := &mockTransport{}
 
-	client1 := NewClient("service1", transport1, &mockEncoder{})
-	client2 := NewClient("service2", transport2, &mockEncoder{})
+	client1 := New("service1", transport1, &mockEncoder{})
+	client2 := New("service2", transport2, &mockEncoder{})
 
 	if client1.serviceName == client2.serviceName {
 		t.Error("Clients should have different service names")
@@ -241,7 +241,7 @@ func TestClientMultipleServices(t *testing.T) {
 }
 
 func BenchmarkClientBind(b *testing.B) {
-	client := NewClient("test-service", &mockTransport{}, &mockEncoder{})
+	client := New("test-service", &mockTransport{}, &mockEncoder{})
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -258,7 +258,7 @@ func BenchmarkClientHandleMessage(b *testing.B) {
 		},
 	}
 
-	client := NewClient("test-service", transport, &mockEncoder{})
+	client := New("test-service", transport, &mockEncoder{})
 	binding := client.Bind("test.event")
 
 	go func() {
@@ -277,11 +277,11 @@ func BenchmarkClientHandleMessage(b *testing.B) {
 }
 
 func TestClientQueueBind(t *testing.T) {
-	client := NewClient("test-service", &mockTransport{}, &mockEncoder{})
+	client := New("test-service", &mockTransport{}, &mockEncoder{})
 
 	binding := client.QueueBind("test.queue")
 
-	if binding.client != client {
+	if binding.conduit != client {
 		t.Error("Binding not linked to client correctly")
 	}
 

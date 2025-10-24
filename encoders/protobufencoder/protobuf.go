@@ -1,7 +1,7 @@
 // Package protobuf provides a Protocol Buffers encoder for Conduit messages.
 // Protocol Buffers provide strongly-typed schemas with excellent performance,
 // backward/forward compatibility, and cross-language support.
-package protobuf
+package protobufencoder
 
 import (
 	"fmt"

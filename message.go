@@ -13,7 +13,7 @@ type Message struct {
 	sourceServiceName string
 	replySubject      string
 	data              io.Reader
-	client            *Client
+	conduit           *Conduit
 	err               error
 }
 
@@ -28,7 +28,7 @@ func (m *Message) Into(v any) error {
 	if err != nil {
 		return err
 	}
-	return m.client.encoder.Decode(data, v)
+	return m.conduit.encoder.Decode(data, v)
 }
 
 // Read implements io.Reader, allowing the message to be read as a stream.
@@ -48,12 +48,12 @@ func (m *Message) Reply(v any) error {
 		return m.err
 	}
 
-	data, err := intoDataReader(m.client.encoder, v)
+	data, err := intoDataReader(m.conduit.encoder, v)
 	if err != nil {
 		return err
 	}
 
-	return m.client.transport.Send(m.sourceServiceName, m.replySubject, m.client.serviceName, "", data)
+	return m.conduit.transport.Send(m.sourceServiceName, m.replySubject, m.conduit.serviceName, "", data)
 }
 
 func intoDataReader(encoder Encoder, v any) (io.Reader, error) {

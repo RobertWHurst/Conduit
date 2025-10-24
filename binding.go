@@ -1,5 +1,10 @@
 package conduit
 
+import (
+	"errors"
+	"sync"
+)
+
 // BindType specifies whether a binding receives all messages (broadcast)
 // or only a share of messages (load-balanced).
 type BindType int
@@ -13,19 +18,22 @@ const (
 	BindTypeQueue
 )
 
+var ErrBindingClosed = errors.New("binding is closed")
+
 // Binding represents a subscription to messages on a specific subject.
 // Bindings provide two ways to consume messages: Next() for blocking retrieval
 // and To() for handler-based processing.
 type Binding struct {
-	client      *Client
+	mu          sync.Mutex
+	conduit     *Conduit
 	bindType    BindType
 	eventName   string
 	handlerChan chan *Message
 }
 
-func newBinding(client *Client, bindType BindType, eventName string) *Binding {
+func newBinding(client *Conduit, bindType BindType, eventName string) *Binding {
 	b := &Binding{
-		client:      client,
+		conduit:     client,
 		bindType:    bindType,
 		eventName:   eventName,
 		handlerChan: make(chan *Message, 100),
@@ -50,12 +58,27 @@ func newBinding(client *Client, bindType BindType, eventName string) *Binding {
 	return b
 }
 
+// IsBound returns true if the binding is currently active.
+func (b *Binding) IsBound() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.handlerChan != nil
+}
+
 // Next blocks until the next message arrives and returns it.
 // This is useful for processing messages sequentially in a loop.
 func (b *Binding) Next() *Message {
-	msg := <-b.handlerChan
+	b.mu.Lock()
+	handlerChan := b.handlerChan
+	b.mu.Unlock()
+
+	if handlerChan == nil {
+		return &Message{err: ErrBindingClosed}
+	}
+
+	msg := <-handlerChan
 	if b.bindType == BindTypeOnce {
-		defer b.Unbind()
+		b.Unbind()
 	}
 	return msg
 }
@@ -63,11 +86,21 @@ func (b *Binding) Next() *Message {
 // To spawns a goroutine that calls the handler for each message.
 // The handler runs asynchronously and continues until the binding is closed.
 func (b *Binding) To(handler func(msg *Message)) *Binding {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.handlerChan == nil {
+		return b
+	}
+
 	go func() {
-		for {
-			msg, ok := <-b.handlerChan
+		for b.IsBound() {
+			b.mu.Lock()
+			handlerChan := b.handlerChan
+			b.mu.Unlock()
+
+			msg, ok := <-handlerChan
 			if b.bindType == BindTypeOnce {
-				defer b.Unbind()
+				b.Unbind()
 			}
 			if !ok {
 				break
@@ -75,20 +108,29 @@ func (b *Binding) To(handler func(msg *Message)) *Binding {
 			handler(msg)
 		}
 	}()
+
 	return b
 }
 
 // Unbind unsubscribes from messages and frees resources.
 // Any goroutines spawned by To() will exit after Close is called.
 func (b *Binding) Unbind() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.handlerChan == nil {
+		return
+	}
+
 	if b.bindType == BindTypeQueue {
-		b.client.queueHandlerChansMu.Lock()
-		defer b.client.queueHandlerChansMu.Unlock()
-		delete(b.client.queueHandlerChans[b.eventName], b)
+		b.conduit.queueHandlerChansMu.Lock()
+		defer b.conduit.queueHandlerChansMu.Unlock()
+		delete(b.conduit.queueHandlerChans[b.eventName], b)
 	} else {
-		b.client.handlerChansMu.Lock()
-		defer b.client.handlerChansMu.Unlock()
-		delete(b.client.handlerChans[b.eventName], b)
+		b.conduit.handlerChansMu.Lock()
+		defer b.conduit.handlerChansMu.Unlock()
+		delete(b.conduit.handlerChans[b.eventName], b)
 	}
 	close(b.handlerChan)
+
+	b.handlerChan = nil
 }

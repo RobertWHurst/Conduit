@@ -1,6 +1,6 @@
 // Package json provides a JSON encoder for Conduit messages.
 // It uses Go's standard encoding/json package for serialization.
-package json
+package jsonencoder
 
 import (
 	"encoding/json"
