@@ -42,15 +42,12 @@ A lightweight, transport-agnostic messaging framework for Go. Build distributed 
 
 ## Features
 
-- 🚀 **High Performance** - Efficient message routing with streaming support for large payloads
-- 🔌 **Pluggable Transports** - Built-in NATS support with interface for custom transports
-- 📦 **Multiple Encoders** - JSON, MessagePack, and Protocol Buffers out of the box
-- 🌊 **Streaming First** - `io.Reader`-based design for memory-efficient large message handling
-- 🔄 **Request/Reply** - Built-in request/reply pattern with timeout support
-- 📡 **Event Driven** - Bind handlers to events with automatic message routing
-- 🎯 **Type Safe** - Work with strongly-typed Go structs or raw bytes
-- 🛡️ **Backpressure** - Buffered channels provide natural backpressure for slow consumers
-- 🧩 **Composable** - Simple interfaces make it easy to extend with custom encoders and transports
+- 📡 **Event-Driven Messaging** - Broadcast events across services with automatic routing
+- 🌊 **Streaming Support** - Send messages of any size without loading into memory
+- 🔌 **Pluggable Transports** - Built-in NATS support, easily add RabbitMQ, Kafka, or Redis
+- 📦 **Multiple Encoders** - JSON, MessagePack, and Protocol Buffers included
+- ⚖️ **Load Balancing** - Queue bindings distribute work across service instances
+- 🔄 **Request/Reply** - Synchronous request/reply pattern when you need it
 
 ## Installation
 
