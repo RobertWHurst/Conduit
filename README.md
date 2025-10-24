@@ -34,13 +34,8 @@ A lightweight, transport-agnostic messaging framework for Go. Build distributed 
   - [NATS Transport](#nats-transport)
   - [Chunked Streaming](#chunked-streaming)
 - [Advanced Usage](#advanced-usage)
-  - [Multiple Services](#multiple-services)
   - [Custom Encoders](#custom-encoders)
   - [Custom Transports](#custom-transports)
-  - [Error Handling](#error-handling)
-- [Performance](#performance)
-- [Architecture](#architecture)
-- [Testing](#testing)
 - [Help Welcome](#help-welcome)
 - [License](#license)
 - [Related Projects](#related-projects)
@@ -70,69 +65,51 @@ go get github.com/nats-io/nats.go
 
 ## Quick Start
 
-Here's a simple example showing two services communicating over NATS:
+Here's a simple example showing event-driven communication between services over NATS:
+
+**User Service** (broadcasts events):
 
 ```go
-package main
+// Connect to NATS
+nc, _ := natsgo.Connect("nats://localhost:4222")
 
-import (
-    "fmt"
-    "github.com/RobertWHurst/conduit"
-    "github.com/RobertWHurst/conduit/encoders/json"
-    "github.com/RobertWHurst/conduit/transports/nats"
-    natsgo "github.com/nats-io/nats.go"
-)
+// Create client
+client := conduit.NewClient("user-service", nats.NewNatsTransport(nc), json.New())
 
-type GetUserRequest struct {
-    UserID int `json:"user_id"`
-}
+// Broadcast user.created event when a user signs up
+client.Service("notification-service").Send("user.created", UserCreatedEvent{
+    UserID: 123,
+    Email:  "alice@example.com",
+    Name:   "Alice",
+})
+```
 
-type User struct {
-    ID   int    `json:"id"`
-    Name string `json:"name"`
-}
+**Notification Service** (listens for events):
 
-func main() {
-    // Connect to NATS
-    nc, _ := natsgo.Connect("nats://localhost:4222")
+```go
+// Connect to NATS
+nc, _ := natsgo.Connect("nats://localhost:4222")
+
+// Create client
+client := conduit.NewClient("notification-service", nats.NewNatsTransport(nc), json.New())
+
+// Listen for user.created events
+client.Bind("user.created").To(func(msg *conduit.Message) {
+    var event UserCreatedEvent
+    msg.Into(&event)
     
-    // Create user service
-    userService := conduit.NewClient(
-        "user-service",
-        nats.NewNatsTransport(nc),
-        json.New(),
-    )
-    
-    // Bind handler for user requests
-    userService.Bind("user.get").To(func(msg *conduit.Message) {
-        var req GetUserRequest
-        msg.Into(&req)
-        
-        user := User{ID: req.UserID, Name: "Alice"}
-        msg.Reply(user)
-    })
-    
-    // Create API service that calls user service
-    apiService := conduit.NewClient(
-        "api-service",
-        nats.NewNatsTransport(nc),
-        json.New(),
-    )
-    
-    // Send request to user service
-    var user User
-    apiService.Service("user-service").Request("user.get", GetUserRequest{UserID: 123}).Into(&user)
-    fmt.Printf("Got user: %s\n", user.Name)
-}
+    // Send welcome email
+    sendWelcomeEmail(event.Email, event.Name)
+})
 ```
 
 ## Core Concepts
 
 ### Client
 
-The Client is the central object for sending and receiving messages. Each client represents a service and has a unique name that other services use to communicate with it.
+The client allows sending and receiving data from different services. A client takes the name of the service it represents, a transport for facilitating communication, and an encoder for encoding and decoding structs.
 
-Clients are created with three components: a service name, a transport (like NATS), and an encoder (like JSON). The service name identifies this client in the distributed system, the transport handles the underlying communication, and the encoder serializes/deserializes messages.
+Each service should have one client instance. The service name identifies your service to others in the distributed system. The transport handles the underlying message delivery (like NATS). The encoder serializes and deserializes your data structures.
 
 ```go
 client := conduit.NewClient(
@@ -145,71 +122,67 @@ defer client.Close()
 
 ### Service Communication
 
-Services communicate by creating service clients that target specific remote services. A service client is created by calling `client.Service()` with the target service name.
-
-Service clients provide methods for sending messages (`Send`), making requests with replies (`Request`), and setting custom timeouts or contexts.
+To send messages to another service, create a service client using `client.Service()` with the target service name. This returns a `ServiceClient` that provides methods for sending one-way messages or making request/reply calls.
 
 ```go
-// Create a client to communicate with "user-service"
-userClient := client.Service("user-service")
+// Create a service client for "notification-service"
+notificationService := client.Service("notification-service")
 
-// Fire-and-forget
-userClient.Send("user.created", User{ID: 123, Name: "Alice"})
+// Send one-way message
+notificationService.Send("email.send", EmailRequest{
+    To:      "user@example.com",
+    Subject: "Welcome!",
+})
 
-// Request with reply
-var user User
-userClient.Request("user.get", GetUserRequest{UserID: 123}).Into(&user)
+// Request with reply (blocks until response or timeout)
+var result EmailResult
+notificationService.Request("email.send", emailReq).Into(&result)
 
-// Request with custom timeout
-userClient.RequestWithTimeout("user.get", req, 5*time.Second).Into(&user)
+// Custom timeout
+notificationService.RequestWithTimeout("email.send", emailReq, 5*time.Second).Into(&result)
 
-// Request with context
+// Context-based cancellation
 ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 defer cancel()
-userClient.RequestWithCtx(ctx, "user.get", req).Into(&user)
+notificationService.RequestWithCtx(ctx, "email.send", emailReq).Into(&result)
 ```
 
 ### Message Encoding
 
-Conduit uses encoder interfaces to serialize and deserialize messages. This means you can send and receive strongly-typed Go structs without manually marshaling JSON or protobuf.
+Encoders serialize and deserialize messages automatically. Send strongly-typed Go structs without manual marshaling.
 
-Encoders handle three types of values automatically:
+Encoders handle four types of values:
 
-- **Structs** - Automatically marshaled using the encoder (JSON, MessagePack, Protocol Buffers)
+- **Structs** - Marshaled using the encoder (JSON, MessagePack, Protocol Buffers)
 - **Strings** - Sent as-is without encoding
 - **Byte slices** - Sent as-is without encoding
 - **io.Reader** - Streamed directly without buffering
 
-This design makes it easy to send small structured messages or large binary streams using the same API.
-
 ```go
-// Send a struct - automatically encoded
-client.Service("user-service").Send("user.created", User{ID: 123, Name: "Alice"})
+// Send a struct
+client.Service("notification-service").Send("user.created", User{ID: 123, Name: "Alice"})
 
 // Send a string
-client.Service("log-service").Send("log.message", "User logged in")
+client.Service("log-service").Send("log.info", "User logged in")
 
 // Send bytes
-client.Service("data-service").Send("data.chunk", []byte{0x01, 0x02, 0x03})
+client.Service("analytics-service").Send("event.track", []byte{0x01, 0x02, 0x03})
 
 // Stream a file
-file, _ := os.Open("/path/to/large/file.dat")
+file, _ := os.Open("report.pdf")
 client.Service("storage-service").Send("file.upload", file)
 ```
 
 ### Transports
 
-Transports handle the underlying communication between services. Conduit ships with a NATS transport that provides reliable, high-performance messaging with streaming support.
+Transports handle the underlying message delivery between services. Conduit includes a NATS transport with support for reliable messaging and streaming.
 
-Transports implement a simple interface, making it easy to add support for other message brokers like RabbitMQ, Redis, or Kafka.
+The transport interface is simple, making it straightforward to add support for other brokers like RabbitMQ, Redis, or Kafka.
 
-The NATS transport uses a chunked streaming protocol that allows it to send messages of any size without loading them entirely into memory. Messages are split into 16KB chunks and streamed from sender to receiver.
+The NATS transport uses a chunked streaming protocol to send messages of any size without loading them into memory. Messages are split into 16KB chunks and streamed between services.
 
 ```go
-// Create NATS connection
 nc, _ := natsgo.Connect("nats://localhost:4222")
-
-// Use with client
 client := conduit.NewClient("my-service", nats.NewNatsTransport(nc), json.New())
 ```
 
@@ -217,13 +190,11 @@ client := conduit.NewClient("my-service", nats.NewNatsTransport(nc), json.New())
 
 ### Send (Fire and Forget)
 
-Send is a one-way message that doesn't expect a reply. It's the fastest messaging pattern since it doesn't wait for acknowledgment beyond the transport-level confirmation.
-
-Use Send for notifications, events, logging, and other cases where you don't need to know if the message was processed successfully.
+Send delivers one-way messages without waiting for a reply. This is ideal for broadcasting events, logging, and notifications where you don't need confirmation of processing.
 
 ```go
-// Notify user service of login event
-client.Service("user-service").Send("user.login", LoginEvent{
+// Broadcast login event
+client.Service("analytics-service").Send("user.login", LoginEvent{
     UserID:    123,
     Timestamp: time.Now(),
     IPAddress: "192.168.1.1",
@@ -235,62 +206,51 @@ client.Service("log-service").Send("log.info", "User 123 logged in")
 
 ### Request/Reply
 
-Request/Reply is a synchronous pattern where the sender waits for a response. The Request method blocks until a reply arrives or the timeout expires.
-
-This is the pattern to use for queries, RPC calls, and any operation where you need a result from the remote service.
+Request/Reply is a synchronous pattern where the sender waits for a response. Use this when you need a result back from another service.
 
 ```go
-// Make request and wait for reply
-var user User
-if err := client.Service("user-service").Request("user.get", GetUserRequest{UserID: 123}).Into(&user); err != nil {
+// Make request and wait for reply (30 second default timeout)
+var result ProcessResult
+if err := client.Service("worker-service").Request("job.process", job).Into(&result); err != nil {
     log.Fatal(err)
 }
 
-fmt.Printf("User: %s\n", user.Name)
-```
-
-The default timeout is 30 seconds. Use `RequestWithTimeout` or `RequestWithCtx` for custom timeouts:
-
-```go
-// 5 second timeout
-var user User
-client.Service("user-service").RequestWithTimeout("user.get", req, 5*time.Second).Into(&user)
+// Custom timeout
+client.Service("worker-service").RequestWithTimeout("job.process", job, 5*time.Second).Into(&result)
 
 // Context-based cancellation
 ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 defer cancel()
-client.Service("user-service").RequestWithCtx(ctx, "user.get", req).Into(&user)
+client.Service("worker-service").RequestWithCtx(ctx, "job.process", job).Into(&result)
 ```
 
 ### Event Binding
 
-Event binding lets services subscribe to messages on specific subjects. When a message arrives, Conduit routes it to all registered bindings for that subject.
+Bind to subjects to receive messages. All service instances with the same binding will receive every message (broadcast).
 
-Bindings provide two ways to handle messages:
-
-- **Next()** - Blocking call that returns the next message. Use in a loop to process messages sequentially.
-- **To()** - Non-blocking call that spawns a goroutine and calls your handler for each message.
+Use `Next()` to process messages in a loop, or `To()` to handle messages with a callback:
 
 ```go
 // Option 1: Process messages in a loop
 binding := client.Bind("user.created")
 go func() {
     for {
-        var user User
-        binding.Next().Into(&user)
-        fmt.Printf("User created: %s\n", user.Name)
+        msg := binding.Next()
+        var event UserCreatedEvent
+        msg.Into(&event)
+        updateCache(event)
     }
 }()
 
 // Option 2: Use a handler function
 client.Bind("user.created").To(func(msg *conduit.Message) {
-    var user User
-    msg.Into(&user)
-    fmt.Printf("User created: %s\n", user.Name)
+    var event UserCreatedEvent
+    msg.Into(&event)
+    updateCache(event)
 })
 ```
 
-Close bindings when you're done to free resources:
+Close bindings when done:
 
 ```go
 binding := client.Bind("user.created")
@@ -299,177 +259,133 @@ defer binding.Close()
 
 ### Queue Binding
 
-Queue binding distributes messages across multiple service instances, ensuring each message is processed by only one instance. This is useful for load balancing work across multiple instances.
-
-The API is identical to regular bindings, but uses `QueueBind()` instead of `Bind()`. The transport ensures only one instance receives each message through queue group semantics.
+Queue bindings distribute messages across service instances - only one instance receives each message. Use this for load balancing work.
 
 ```go
-// Multiple instances of the service can bind to the same queue
-client.QueueBind("work.process").To(func(msg *conduit.Message) {
-    var work WorkItem
-    msg.Into(&work)
-    processWork(work)
+// Each message goes to only one instance
+client.QueueBind("job.process").To(func(msg *conduit.Message) {
+    var job Job
+    msg.Into(&job)
+    processJob(job)
 })
 ```
 
-**When to use each:**
+**When to use:**
 
-- **Bind()** - Use for events that all instances should process (e.g., cache invalidation, configuration updates)
-- **QueueBind()** - Use for work that should be distributed (e.g., job processing, request handling)
+- **Bind()** - All instances receive the message (cache invalidation, config updates)
+- **QueueBind()** - One instance receives the message (job processing, work distribution)
 
-**Note:** Both `Bind()` and `QueueBind()` can be used on the same subject simultaneously. Bind() subscribers all receive every message, while QueueBind() subscribers share messages (only one receives each).
+Both can be used on the same subject simultaneously.
 
 ## Message Handling
 
 ### Decoding Messages
 
-The `Into()` method decodes a message into a Go struct using the configured encoder. It automatically handles the message data and respects the `MaxDecodeSize` limit (default 5MB) to prevent memory exhaustion.
+Use `Into()` to decode messages into Go structs. The decoder respects `MaxDecodeSize` (default 5MB) to prevent memory exhaustion.
 
 ```go
-client.Bind("user.get").To(func(msg *conduit.Message) {
-    var req GetUserRequest
-    if err := msg.Into(&req); err != nil {
+client.Bind("order.created").To(func(msg *conduit.Message) {
+    var event OrderCreatedEvent
+    if err := msg.Into(&event); err != nil {
         log.Printf("Failed to decode: %v", err)
         return
     }
     
-    // Process request
-    user := getUserByID(req.UserID)
-    msg.Reply(user)
+    processOrder(event)
 })
 ```
 
-Change the decode size limit globally or per-client:
+Change the decode size limit:
 
 ```go
-// Global limit (affects all clients)
 conduit.MaxDecodeSize = 10 * 1024 * 1024 // 10MB
-
-// Per-client limit
-client := conduit.NewClient("my-service", transport, encoder)
-// MaxDecodeSize is used when calling msg.Into()
 ```
 
 ### Reading Raw Data
 
-For large messages or streaming data, use the message as an `io.Reader` to avoid loading everything into memory at once.
-
-The message implements `io.Reader`, so you can use it with standard library functions like `io.Copy`, `io.ReadAll`, or read incrementally in a loop.
+Messages implement `io.Reader` for streaming large data without loading it into memory.
 
 ```go
 client.Bind("file.upload").To(func(msg *conduit.Message) {
     file, _ := os.Create("/tmp/upload")
     defer file.Close()
     
-    // Stream message data directly to file
     io.Copy(file, msg)
-    
     log.Println("File uploaded")
 })
 ```
 
 ### Replying to Messages
 
-Messages that arrive via bindings can be replied to using the `Reply()` method. This sends a message back to the original sender on the reply subject embedded in the request.
-
-Only messages that were sent via `Request()` have reply subjects. Messages sent via `Send()` cannot be replied to.
+Use `Reply()` to respond to requests. Only messages sent via `Request()` have reply subjects - messages from `Send()` cannot be replied to.
 
 ```go
-client.Bind("user.get").To(func(msg *conduit.Message) {
-    var req GetUserRequest
-    msg.Into(&req)
+client.Bind("job.process").To(func(msg *conduit.Message) {
+    var job Job
+    msg.Into(&job)
     
-    user := getUserByID(req.UserID)
+    result := processJob(job)
     
-    // Send reply back to requester
-    if err := msg.Reply(user); err != nil {
+    if err := msg.Reply(result); err != nil {
         log.Printf("Failed to reply: %v", err)
     }
 })
 ```
 
-Like `Send()`, `Reply()` accepts structs, strings, byte slices, and `io.Reader` values.
+`Reply()` accepts structs, strings, byte slices, and `io.Reader` values.
 
 ## Built-in Encoders
 
 ### JSON Encoder
 
-The JSON encoder uses Go's standard `encoding/json` package. It's human-readable, widely supported, and ideal for development, debugging, and APIs where compatibility is more important than performance.
+JSON encoding is human-readable and widely supported. Good for development and debugging.
 
 ```go
 import "github.com/RobertWHurst/conduit/encoders/json"
 
-client := conduit.NewClient(
-    "my-service",
-    transport,
-    json.New(),
-)
+client := conduit.NewClient("my-service", transport, json.New())
 ```
 
-JSON is the best choice when:
-- Messages need to be human-readable for debugging
-- You're building public APIs or need broad client support
-- Message size and performance are not critical concerns
+Use JSON when:
+- Human-readable messages are important
+- Broad compatibility is needed
+- Performance is not critical
 
 ### MessagePack Encoder
 
-MessagePack is a binary encoding format that's significantly faster and more compact than JSON. It's ideal for high-throughput systems where performance matters.
-
-**Why use MessagePack:**
-- **5x faster** than JSON for serialization/deserialization
-- **Smaller message sizes** - reduces bandwidth and memory usage
-- **Binary efficiency** - better for high-performance systems
-- **Drop-in replacement** - same API as JSON
+MessagePack is a fast, compact binary format - approximately 5x faster than JSON with smaller message sizes.
 
 ```go
 import "github.com/RobertWHurst/conduit/encoders/msgpack"
 
-client := conduit.NewClient(
-    "my-service",
-    transport,
-    msgpack.New(),
-)
+client := conduit.NewClient("my-service", transport, msgpack.New())
 ```
 
-MessagePack is the best choice when:
-- You need maximum throughput for high-volume messaging
+Use MessagePack when:
+- High throughput is needed
 - Bandwidth or memory is constrained
-- All services are under your control (not a public API)
+- All services are under your control
 
 ### Protocol Buffers Encoder
 
-Protocol Buffers (protobuf) provides strong typing, schema validation, and excellent performance with compact binary encoding. It's the gold standard for cross-language communication in distributed systems.
+Protocol Buffers provides type safety, schema validation, and cross-language compatibility.
 
-**Why use Protocol Buffers:**
-- **Type safety** - Strongly-typed schemas with compile-time validation
-- **Language-agnostic** - Same `.proto` files work across Go, Java, Python, C++, and more
-- **Schema evolution** - Add or deprecate fields without breaking existing services
-- **Backward/forward compatibility** - Older clients work with newer servers
-- **Industry standard** - Used by Google, Netflix, and thousands of companies
-
-**Define your `.proto` schema:**
+**Define a schema:**
 
 ```protobuf
-// user.proto
 syntax = "proto3";
-package myapp;
-option go_package = "github.com/myuser/myapp/proto";
 
-message GetUserRequest {
+message UserCreatedEvent {
   int64 user_id = 1;
-}
-
-message User {
-  int64 id = 1;
-  string name = 2;
-  string email = 3;
+  string email = 2;
+  string name = 3;
 }
 ```
 
 **Generate Go code:**
 
 ```bash
-protoc --go_out=. --go_opt=paths=source_relative user.proto
+protoc --go_out=. --go_opt=paths=source_relative events.proto
 ```
 
 **Use with Conduit:**
@@ -480,31 +396,26 @@ import (
     pb "github.com/myuser/myapp/proto"
 )
 
-client := conduit.NewClient(
-    "my-service",
-    transport,
-    protobuf.New(),
-)
+client := conduit.NewClient("my-service", transport, protobuf.New())
 
-// Send protobuf messages
-var user pb.User
-client.Service("user-service").Request("user.get", &pb.GetUserRequest{UserId: 123}).Into(&user)
-fmt.Printf("User: %s\n", user.Name)
+// Send protobuf message
+client.Service("notification-service").Send("user.created", &pb.UserCreatedEvent{
+    UserId: 123,
+    Email:  "alice@example.com",
+    Name:   "Alice",
+})
 ```
 
-Protocol Buffers is the best choice when:
-- Building microservices architectures
-- Supporting multiple programming languages
-- You need type-safe APIs with schema validation
+Use Protocol Buffers when:
+- Type-safe schemas are needed
+- Supporting multiple languages
 - Backward/forward compatibility is important
 
 ## Built-in Transports
 
 ### NATS Transport
 
-The NATS transport provides reliable, high-performance messaging over NATS. It supports the full Conduit API including streaming, request/reply, and event patterns.
-
-**Setup:**
+The NATS transport provides reliable, high-performance messaging with support for streaming, request/reply, and events.
 
 ```go
 import (
@@ -512,102 +423,54 @@ import (
     natsgo "github.com/nats-io/nats.go"
 )
 
-// Connect to NATS server
-nc, err := natsgo.Connect("nats://localhost:4222")
-if err != nil {
-    log.Fatal(err)
-}
-
-// Create transport
+nc, _ := natsgo.Connect("nats://localhost:4222")
 transport := nats.NewNatsTransport(nc)
-
-// Use with client
 client := conduit.NewClient("my-service", transport, json.New())
 ```
 
-**NATS Features:**
-- **At-most-once delivery** - Fast, fire-and-forget messaging
-- **Request/Reply** - Built-in request/reply pattern
-- **Subject-based routing** - Messages are routed based on hierarchical subjects
-- **Clustering** - High availability with NATS clusters
-- **Security** - TLS encryption and authentication support
+Features:
+- At-most-once delivery
+- Subject-based routing
+- Clustering for high availability
+- TLS encryption and authentication
 
 ### Chunked Streaming
 
-The NATS transport implements a chunked streaming protocol that allows messages of any size to be sent without loading them entirely into memory.
-
-When you send an `io.Reader`, the transport:
-1. Reads data in 16KB chunks
-2. Sends each chunk with an index over NATS
-3. Marks the final chunk with an EOF flag
-4. The receiver assembles chunks into an `io.Reader` pipe
-
-This design allows you to stream gigabyte-sized files over NATS without memory pressure, while still using the same simple API as small messages.
+The NATS transport streams messages of any size without loading them into memory. Data is sent in 16KB chunks.
 
 ```go
-// Stream large file without loading into memory
-file, _ := os.Open("/path/to/large/file.dat")
-defer file.Close()
-
+// Stream large file
+file, _ := os.Open("large-file.dat")
 client.Service("storage-service").Send("file.store", file)
 ```
 
-The receiver can stream the data directly to disk or another destination:
+Receiver streams directly to disk:
 
 ```go
 client.Bind("file.store").To(func(msg *conduit.Message) {
-    outFile, _ := os.Create("/storage/uploaded-file.dat")
+    outFile, _ := os.Create("uploaded-file.dat")
     defer outFile.Close()
-    
-    // Stream directly to disk - no buffering
     io.Copy(outFile, msg)
 })
 ```
 
-**Protocol Details:**
+Protocol details:
 - Chunk size: 16KB (configurable via `nats.ChunkSize`)
-- Timeout: 5 seconds for send acknowledgment (configurable via `nats.SendTimeout`)
+- Send timeout: 5 seconds (configurable via `nats.SendTimeout`)
 - Subject format: `conduit.<service-name>`
-- Namespacing: Automatic conversion of service names to valid NATS subjects
 
 ## Advanced Usage
 
-### Multiple Services
-
-A single application can run multiple Conduit clients, each representing a different service. This is useful for microservice architectures where one process handles multiple concerns.
-
-Each client has its own identity and bindings, allowing you to organize your code around service boundaries while deploying as a single process.
-
-```go
-// Create multiple services in one process
-userService := conduit.NewClient("user-service", transport, json.New())
-authService := conduit.NewClient("auth-service", transport, json.New())
-logService := conduit.NewClient("log-service", transport, json.New())
-
-// Each service has independent bindings
-userService.Bind("user.get").To(handleGetUser)
-authService.Bind("auth.login").To(handleLogin)
-logService.Bind("log.write").To(handleLog)
-
-// Services can communicate with each other
-var user User
-authService.Service("user-service").Request("user.get", GetUserRequest{UserID: 123}).Into(&user)
-```
-
 ### Custom Encoders
 
-Implement the `Encoder` interface to add support for other serialization formats like CBOR, Avro, or custom binary protocols.
+Implement the `Encoder` interface to add support for other formats:
 
 ```go
 type Encoder interface {
     Encode(v any) ([]byte, error)
     Decode(data []byte, v any) error
 }
-```
 
-Example custom encoder:
-
-```go
 type MyEncoder struct{}
 
 func (e *MyEncoder) Encode(v any) ([]byte, error) {
@@ -620,151 +483,61 @@ func (e *MyEncoder) Decode(data []byte, v any) error {
     return nil
 }
 
-// Use custom encoder
 client := conduit.NewClient("my-service", transport, &MyEncoder{})
 ```
 
 ### Custom Transports
 
-Implement the `Transport` interface to add support for other message brokers like RabbitMQ, Redis Pub/Sub, or Kafka.
+Implement the `Transport` interface to add support for other message brokers:
 
 ```go
 type Transport interface {
     Send(serviceName, subject, sourceServiceName, replySubject string, reader io.Reader) error
-    Handle(serviceName string, handler func(sourceServiceName, subject, replySubject string, reader io.Reader)) error
+    Handle(serviceName string, handler func(sourceServiceName, subject, replySubject string, reader io.Reader))
+    HandleQueue(serviceName string, handler func(sourceServiceName, subject, replySubject string, reader io.Reader))
     Close() error
 }
-```
 
-The transport is responsible for:
-- **Send** - Delivering messages to a specific service and subject, with optional reply subject
-- **Handle** - Registering a handler that's called when messages arrive for this service
-- **Close** - Cleaning up resources when the client shuts down
-
-Example structure for a custom transport:
-
-```go
-type MyTransport struct {
-    // Your transport state
-}
+type MyTransport struct{}
 
 func (t *MyTransport) Send(serviceName, subject, sourceServiceName, replySubject string, reader io.Reader) error {
-    // Read from reader and send to message broker
     data, _ := io.ReadAll(reader)
-    // Send to your message broker...
+    // Send to your message broker
     return nil
 }
 
-func (t *MyTransport) Handle(serviceName string, handler func(subject, sourceServiceName, replySubject string, reader io.Reader)) error {
-    // Subscribe to messages for this service
-    // When messages arrive, call handler with message data as io.Reader
-    return nil
+func (t *MyTransport) Handle(serviceName string, handler func(sourceServiceName, subject, replySubject string, reader io.Reader)) {
+    // Subscribe to broadcast messages
+}
+
+func (t *MyTransport) HandleQueue(serviceName string, handler func(sourceServiceName, subject, replySubject string, reader io.Reader)) {
+    // Subscribe to queue messages
 }
 
 func (t *MyTransport) Close() error {
-    // Clean up connections
     return nil
 }
 ```
 
-### Error Handling
-
-Conduit returns errors from operations that can fail. Always check errors from `Into()`, `Reply()`, `Send()`, and `Request()` operations.
-
-```go
-// Check decode errors
-var user User
-if err := msg.Into(&user); err != nil {
-    log.Printf("Failed to decode user: %v", err)
-    return
-}
-
-// Check reply errors
-if err := msg.Reply(response); err != nil {
-    log.Printf("Failed to send reply: %v", err)
-}
-
-// Check send errors
-if err := client.Service("user-service").Send("user.created", user); err != nil {
-    log.Printf("Failed to send message: %v", err)
-}
-
-// Check request errors (timeout, decode failure)
-var user User
-if err := client.Service("user-service").RequestWithTimeout("user.get", req, 5*time.Second).Into(&user); err != nil {
-    if err == context.DeadlineExceeded {
-        log.Printf("Request timed out")
-    } else {
-        log.Printf("Request failed: %v", err)
-    }
-    return
-}
-```
-
-Request errors are returned via `msg.Into()` and include:
-- `context.DeadlineExceeded` - Request timed out
-- `context.Canceled` - Request was canceled
-- Decode errors - Failed to unmarshal response
-- Transport errors - Network or broker failures
-
-## Performance
-
-Conduit is designed for high-performance messaging with minimal overhead:
-
-- **Zero-copy streaming** - `io.Reader`-based design avoids unnecessary buffering
-- **Efficient encoding** - MessagePack and Protocol Buffers provide fast serialization
-- **Chunked transfers** - Large messages are streamed without loading into memory
-- **Buffered channels** - 100-message buffer per binding provides natural backpressure
-- **Connection reuse** - Transports maintain persistent connections to the broker
-
-**Benchmarks** (coming soon)
-
-## Architecture
-
-Conduit has a clean, layered architecture:
-
-```
-┌─────────────────────────────────────────┐
-│            Application Code             │
-├─────────────────────────────────────────┤
-│              Conduit Client             │
-│  (Service naming, message routing)      │
-├─────────────────────────────────────────┤
-│              Encoder Layer              │
-│     (JSON, MessagePack, Protobuf)       │
-├─────────────────────────────────────────┤
-│            Transport Layer              │
-│    (NATS, RabbitMQ, Redis, Kafka)       │
-└─────────────────────────────────────────┘
-```
-
-**Key Design Decisions:**
-
-- **Streaming-first** - `io.Reader` throughout the stack for memory efficiency
-- **Pluggable components** - Simple interfaces for encoders and transports
-- **Minimal dependencies** - Core package uses only Go standard library
-- **Backpressure** - Buffered channels prevent fast producers from overwhelming slow consumers
-
-## Testing
-
-(Coming soon)
-
 ## Help Welcome
 
-Conduit is in active development and contributions are welcome! Areas where help would be appreciated:
+If you want to support this project with coffee money, it's greatly appreciated.
 
-- Additional transports (RabbitMQ, Redis, Kafka)
-- Additional encoders (CBOR, Avro)
-- Documentation improvements
-- Performance benchmarks
-- Example applications
-- Test coverage
+[![sponsor](https://img.shields.io/static/v1?label=Sponsor&message=%E2%9D%A4&logo=GitHub&color=%23fe8e86)](https://github.com/sponsors/RobertWHurst)
+
+If you're interested in providing feedback or would like to contribute, please feel free to do so. I recommend first [opening an issue][feature-request] expressing your feedback or intent to contribute a change. From there we can consider your feedback or guide your contribution efforts. Any and all help is greatly appreciated.
+
+Thank you!
+
+[feature-request]: https://github.com/RobertWHurst/Conduit/issues/new?template=feature_request.md
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file for details.
+MIT License - see [LICENSE](LICENSE) for details.
 
 ## Related Projects
 
-- [Navaros](https://github.com/RobertWHurst/Navaros) - HTTP router for Go with powerful pattern matching
-- [Velaros](https://github.com/RobertWHurst/Velaros) - WebSocket framework with message routing
+- [Navaros](https://github.com/RobertWHurst/Navaros) - HTTP framework for Go with powerful pattern matching
+- [Velaros](https://github.com/RobertWHurst/Velaros) - WebSocket framework for Go with message routing
+- [Zephyr](https://github.com/TelemetryTV/Zephyr) - Microservice framework built on Navaros with service discovery and streaming
+- Eurus - WebSocket API gateway framework (upcoming, integrates with Velaros)
