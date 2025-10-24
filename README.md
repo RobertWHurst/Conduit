@@ -148,12 +148,13 @@ notificationService.RequestWithCtx(ctx, "email.send", emailReq).Into(&result)
 
 Encoders serialize and deserialize messages automatically. Send strongly-typed Go structs without manual marshaling.
 
-Encoders handle four types of values:
+Encoders handle five types of values:
 
 - **Structs** - Marshaled using the encoder (JSON, MessagePack, Protocol Buffers)
 - **Strings** - Sent as-is without encoding
 - **Byte slices** - Sent as-is without encoding
 - **io.Reader** - Streamed directly without buffering
+- **nil** - Send events without payload data
 
 ```go
 // Send a struct
@@ -168,6 +169,9 @@ client.Service("analytics-service").Send("event.track", []byte{0x01, 0x02, 0x03}
 // Stream a file
 file, _ := os.Open("report.pdf")
 client.Service("storage-service").Send("file.upload", file)
+
+// Send event without payload
+client.Service("cache-service").Send("cache.invalidate", nil)
 ```
 
 ### Transports

@@ -58,7 +58,9 @@ func (m *Message) Reply(v any) error {
 
 func intoDataReader(encoder Encoder, v any) (io.Reader, error) {
 	var data io.Reader
-	if r, ok := v.(io.Reader); ok {
+	if v == nil {
+		return bytes.NewReader([]byte{}), nil
+	} else if r, ok := v.(io.Reader); ok {
 		data = r
 	} else {
 		switch dv := v.(type) {
