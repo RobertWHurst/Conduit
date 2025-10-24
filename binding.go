@@ -7,6 +7,8 @@ type BindType int
 const (
 	// BindTypeNormal means all instances receive each message (fan-out/broadcast).
 	BindTypeNormal BindType = iota
+	// BindTypeOnce is like BindTypeNormal but will auto-unbind after one message.
+	BindTypeOnce
 	// BindTypeQueue means only one instance receives each message (load-balanced).
 	BindTypeQueue
 )
@@ -51,7 +53,11 @@ func newBinding(client *Client, bindType BindType, eventName string) *Binding {
 // Next blocks until the next message arrives and returns it.
 // This is useful for processing messages sequentially in a loop.
 func (b *Binding) Next() *Message {
-	return <-b.handlerChan
+	msg := <-b.handlerChan
+	if b.bindType == BindTypeOnce {
+		defer b.Unbind()
+	}
+	return msg
 }
 
 // To spawns a goroutine that calls the handler for each message.
@@ -60,6 +66,9 @@ func (b *Binding) To(handler func(msg *Message)) *Binding {
 	go func() {
 		for {
 			msg, ok := <-b.handlerChan
+			if b.bindType == BindTypeOnce {
+				defer b.Unbind()
+			}
 			if !ok {
 				break
 			}

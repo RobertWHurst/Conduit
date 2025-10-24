@@ -55,6 +55,15 @@ func (c *Client) Bind(eventName string) *Binding {
 	return newBinding(c, BindTypeNormal, eventName)
 }
 
+// BindOnce creates a binding that subscribes to broadcast messages on the given subject.
+// All instances of the service receive each message (fan-out).
+// The binding will automatically unbind after receiving one message.
+// Use this for events that only need to be processed once.
+// The binding must be closed when no longer needed to free resources.
+func (c *Client) BindOnce(eventName string) *Binding {
+	return newBinding(c, BindTypeOnce, eventName)
+}
+
 // QueueBind creates a binding that subscribes to load-balanced messages on the given subject.
 // Only one instance of the service receives each message (round-robin).
 // Use this for work that should be distributed across instances.
