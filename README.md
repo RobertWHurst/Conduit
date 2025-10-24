@@ -348,7 +348,7 @@ conduit.Bind("job.process").To(func(msg *conduit.Message) {
 JSON encoding is human-readable and widely supported. Good for development and debugging.
 
 ```go
-import "github.com/RobertWHurst/conduit/encoders/jsonencoder"
+import "github.com/RobertWHurst/conduit/encoder/jsonencoder"
 
 conduit := conduit.New("my-service", transport, jsonencoder.New())
 ```
@@ -364,7 +364,7 @@ Use JSON when:
 MessagePack is a fast, compact binary format - approximately 5x faster than JSON with smaller message sizes.
 
 ```go
-import "github.com/RobertWHurst/conduit/encoders/msgpackencoder"
+import "github.com/RobertWHurst/conduit/encoder/msgpackencoder"
 
 conduit := conduit.New("my-service", transport, msgpackencoder.New())
 ```
@@ -401,7 +401,7 @@ protoc --go_out=. --go_opt=paths=source_relative events.proto
 
 ```go
 import (
-    "github.com/RobertWHurst/conduit/encoders/protobufencoder"
+    "github.com/RobertWHurst/conduit/encoder/protobufencoder"
     pb "github.com/myuser/myapp/proto"
 )
 
@@ -429,7 +429,7 @@ The NATS transport provides reliable, high-performance messaging with support fo
 
 ```go
 import (
-    "github.com/RobertWHurst/conduit/transports/natstransport"
+    "github.com/RobertWHurst/conduit/transport/natstransport"
     natsgo "github.com/nats-io/nats.go"
 )
 
