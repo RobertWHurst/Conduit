@@ -47,6 +47,12 @@ func (c *Conduit) Service(remoteServiceName string) *ServiceClient {
 	}
 }
 
+// Self creates a client for communicating with instances of the service
+// represented by this Conduit.
+func (c *Conduit) Self() *ServiceClient {
+	return c.Service(c.serviceName)
+}
+
 // Bind creates a binding that subscribes to broadcast messages on the given subject.
 // All instances of the service receive each message (fan-out).
 // Use this for events that all instances should process.
