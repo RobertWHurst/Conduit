@@ -1,6 +1,7 @@
 package conduit
 
 import (
+	"context"
 	"errors"
 	"sync"
 )
@@ -29,6 +30,9 @@ type Binding struct {
 	bindType    BindType
 	eventName   string
 	handlerChan chan *Message
+
+	ctxCancel context.CancelFunc
+	ctx       context.Context
 }
 
 func newBinding(client *Conduit, bindType BindType, eventName string) *Binding {
@@ -54,6 +58,27 @@ func newBinding(client *Conduit, bindType BindType, eventName string) *Binding {
 		}
 		client.handlerChans[eventName][b] = b.handlerChan
 	}
+
+	return b
+}
+
+func (b *Binding) WithCtx(ctx context.Context) *Binding {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.ctxCancel != nil {
+		panic("WithCtx can only be called once per Binding")
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+
+	b.ctxCancel = cancel
+	b.ctx = ctx
+
+	go func() {
+		<-ctx.Done()
+		b.Unbind()
+	}()
 
 	return b
 }
@@ -117,8 +142,13 @@ func (b *Binding) To(handler func(msg *Message)) *Binding {
 func (b *Binding) Unbind() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
 	if b.handlerChan == nil {
 		return
+	}
+
+	if b.ctxCancel != nil {
+		b.ctxCancel()
 	}
 
 	if b.bindType == BindTypeQueue {
@@ -131,6 +161,5 @@ func (b *Binding) Unbind() {
 		delete(b.conduit.handlerChans[b.eventName], b)
 	}
 	close(b.handlerChan)
-
 	b.handlerChan = nil
 }

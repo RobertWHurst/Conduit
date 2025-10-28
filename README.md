@@ -143,6 +143,10 @@ notificationService.RequestWithTimeout("email.send", emailReq, 5*time.Second).In
 ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 defer cancel()
 notificationService.RequestWithCtx(ctx, "email.send", emailReq).Into(&result)
+
+// Communicate with instances of the same service
+selfClient := conduit.Self()
+selfClient.Send("cache.invalidate", CacheKey{Key: "user:123"})
 ```
 
 ### Message Encoding
@@ -263,6 +267,24 @@ Unbind when done (safe to call multiple times):
 binding := conduit.Bind("user.created")
 defer binding.Unbind()
 ```
+
+Bind with automatic cleanup using context:
+
+```go
+// Binding automatically unbinds when context is cancelled
+ctx, cancel := context.WithCancel(context.Background())
+defer cancel()
+
+binding := conduit.Bind("user.created").WithCtx(ctx).To(func(msg *conduit.Message) {
+    var event UserCreatedEvent
+    msg.Into(&event)
+    updateCache(event)
+})
+
+// No need to manually unbind - happens automatically when ctx is cancelled
+```
+
+**Note:** `WithCtx` can only be called once per binding and will panic if called multiple times.
 
 ### Queue Binding
 
